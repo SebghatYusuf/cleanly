@@ -251,6 +251,7 @@ function initialSpaces(): SpaceNode {
       leaf('Other files', 1.1 * GB, 'file', 'other'),
     ]),
   ];
+  children.push({ name: 'System & apps', path: 'C:\\', size: 180 * GB, kind: 'other', icon: 'chip', reclaimable: 0 });
   return {
     name: 'Alex',
     path: HOME,
@@ -417,6 +418,7 @@ function initialSettings(): Settings {
     hasClaudeKey: false,
     hasOpenAiKey: false,
     background: 'mist',
+    theme: 'light',
     largeFileMinMb: 500,
     confirmBeforeClean: true,
   };
@@ -578,6 +580,30 @@ export function createMockApi(): CleanlyApi {
         key ? 3400 : 2600,
       );
       return clone(target);
+    },
+
+    async scanSpaceFolder(dir, claimedSize) {
+      if (typeof dir !== 'string' || !dir) throw new Error('That folder is not available');
+      const name = dir.split(/[\\/]/).filter(Boolean).pop() || dir;
+      await walk('spaces', [{ phase: `Measuring ${name}`, current: dir }], 400);
+      const want = dir.replace(/[\\/]+$/, '').toLowerCase();
+      const find = (n: SpaceNode): SpaceNode | undefined => {
+        if (n.path.replace(/[\\/]+$/, '').toLowerCase() === want && n.name !== 'System & apps' && n.children?.length) return n;
+        for (const c of n.children ?? []) {
+          const hit = find(c);
+          if (hit) return hit;
+        }
+      };
+      if (want === 'c:') {
+        const kids = [...(driveC(clone(tree)).children ?? [])];
+        const seen = kids.reduce((s, c) => s + c.size, 0);
+        const claimed = typeof claimedSize === 'number' ? claimedSize : 180 * GB;
+        if (claimed > seen) kids.push({ name: 'Not visible', path: 'C:\\', size: claimed - seen, kind: 'other', icon: 'lock', reclaimable: 0 });
+        return { name: 'System & apps', path: 'C:\\', size: claimed, kind: 'other', icon: 'chip', reclaimable: 0, children: kids };
+      }
+      const hit = find(tree) ?? find(driveC(clone(tree))) ?? find(treeD);
+      if (hit) return clone(hit);
+      return { name, path: dir, size: typeof claimedSize === 'number' ? claimedSize : 0, kind: 'folder', icon: 'folder', reclaimable: 0, children: [] };
     },
 
     async scanLargeFiles(minBytes) {

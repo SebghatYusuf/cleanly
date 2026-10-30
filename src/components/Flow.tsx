@@ -5,7 +5,7 @@ import { useEffect, useRef } from 'react';
 const FRAG = `
 precision highp float;
 uniform vec2 r; uniform float t; uniform float energy; uniform float mode;
-uniform vec3 c1; uniform vec3 c2; uniform vec3 c3; uniform vec3 c4;
+uniform vec3 c1; uniform vec3 c2; uniform vec3 c3; uniform vec3 c4; uniform vec3 paper;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 float noise(vec2 p){ vec2 i = floor(p), f = fract(p); vec2 u = f * f * (3.0 - 2.0 * f);
   return mix(mix(hash(i), hash(i + vec2(1.0, 0.0)), u.x), mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y); }
@@ -44,7 +44,7 @@ void main(){
     vec2 c = uv - 0.5;
     float vig = smoothstep(0.12, 0.78, length(c * vec2(1.0, 1.35)));
     float mask = (0.16 + 0.6 * ribbon + 0.45 * gust) * (0.4 + 0.6 * vig) * (0.55 + 0.6 * f);
-    vec3 col = mix(paint(w, ribbon, f), vec3(1.0), gust * 0.35);
+    vec3 col = mix(paint(w, ribbon, f), paper, gust * 0.35);
     float a = clamp(mask * energy + dither, 0.0, 0.9);
     gl_FragColor = vec4(col * a, a);
   }
@@ -64,6 +64,16 @@ const MOODS = [
   ['#a8f0dc', '#b5dcff', '#ffd6c2', '#d9cfff'],
   ['#ffc2b0', '#d6b8ff', '#ffb8d6', '#ffe6c4'],
 ].map((m) => m.map(hex));
+const PLUME_DARK = ['#c46a88', '#c4926a', '#6a92c4', '#8a78c4'].map(hex);
+const CALM_DARK = ['#3d9a78', '#5a8ab0', '#6a9aaa', '#4a8a80'].map(hex);
+const MOODS_DARK = [
+  ['#c47890', '#c49a70', '#7a88c4', '#a080c4'],
+  ['#6a92c4', '#8a78c4', '#c47890', '#7a90b8'],
+  ['#4a9a88', '#5a88b8', '#c49278', '#8a80b8'],
+  ['#c47870', '#8a70c4', '#c47090', '#c4a070'],
+].map((m) => m.map(hex));
+const PAPER_LIGHT: RGB = [1, 1, 1];
+const PAPER_DARK = hex('#12141c');
 
 interface FlowProps {
   mode: 'plume' | 'mist';
@@ -106,7 +116,7 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (k: string) => gl.getUniformLocation(prog, k);
-    const U = { r: u('r'), t: u('t'), energy: u('energy'), mode: u('mode'), c: [u('c1'), u('c2'), u('c3'), u('c4')] };
+    const U = { r: u('r'), t: u('t'), energy: u('energy'), mode: u('mode'), paper: u('paper'), c: [u('c1'), u('c2'), u('c3'), u('c4')] };
 
     // internal resolution: the smoke is soft, so a fraction of the CSS size is plenty
     const scale = mode === 'mist' ? 0.32 : 0.5;
@@ -134,14 +144,17 @@ export function Flow({ mode, calm = false, pulse = 0, className }: FlowProps) {
       st.boost = Math.max(0, st.boost - dt * 0.8);
       clock += dt * speed;
 
-      const target = mode === 'mist' ? MOODS[Math.floor(clock / 18) % MOODS.length] : st.calm ? CALM : PLUME;
+      const dark = document.documentElement.dataset.theme === 'dark';
+      const moods = dark ? MOODS_DARK : MOODS;
+      const target = mode === 'mist' ? moods[Math.floor(clock / 18) % moods.length] : dark ? (st.calm ? CALM_DARK : PLUME_DARK) : st.calm ? CALM : PLUME;
       const ease = mode === 'mist' ? 1 - Math.exp(-dt / 5) : 1 - Math.exp(-dt * 2);
       for (let i = 0; i < 4; i++) for (let j = 0; j < 3; j++) colors[i][j] += (target[i][j] - colors[i][j]) * ease;
 
       gl.uniform2f(U.r, canvas.width, canvas.height);
       gl.uniform1f(U.t, clock);
-      gl.uniform1f(U.energy, mode === 'mist' ? 1.4 : 1.15 + st.boost * 0.25);
+      gl.uniform1f(U.energy, mode === 'mist' ? (dark ? 0.7 : 1.4) : 1.15 + st.boost * 0.25);
       gl.uniform1f(U.mode, mode === 'mist' ? 1 : 0);
+      gl.uniform3fv(U.paper, dark ? PAPER_DARK : PAPER_LIGHT);
       U.c.forEach((loc, i) => gl.uniform3fv(loc, colors[i]));
       gl.clearColor(0, 0, 0, 0);
       gl.clear(gl.COLOR_BUFFER_BIT);

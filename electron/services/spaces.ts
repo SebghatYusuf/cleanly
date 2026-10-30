@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import type { DiskInfo, IconName, ScanProgress, SpaceNode } from '../../shared/types';
 import { getDisk, listDisks, sameMount } from './disk';
-import { DAY_MS, displayPath, isInside, knownFolders, samePath, walk } from './walk';
+import { DAY_MS, displayPath, isInside, isRealDir, knownFolders, samePath, walk } from './walk';
 
 type Progress = (p: ScanProgress) => void;
 
@@ -373,4 +373,98 @@ export async function scanSpaces(progress: Progress, root?: unknown): Promise<Sp
   const disk = (await listDisks()).find((d) => sameMount(d.mount, root));
   if (!disk) throw new Error('That drive is not available');
   return scanDrive(scan, disk);
+}
+
+function diskFor(abs: string, disks: DiskInfo[]): DiskInfo | undefined {
+  return disks
+    .filter((d) => samePath(d.mount, abs) || isInside(d.mount, abs))
+    .sort((a, b) => b.mount.length - a.mount.length)[0];
+}
+
+const MAC_DATA = '/System/Volumes/Data';
+const skipMacVolumes = (p: string) => isMac && samePath(p, '/System/Volumes');
+
+/** System & apps: each top-level folder on the volume that actually holds the files. */
+async function scanSystemRoot(progress: Progress, mount: string, claimed: number | undefined, home: string): Promise<SpaceNode> {
+  const data = isMac && (await isRealDir(MAC_DATA)) ? MAC_DATA : null;
+  const listing = data && samePath(mount, '/') ? data : mount;
+  const top = await readTop(listing, true);
+  const scan = new Scan(progress);
+  scan.total = top.folders.length;
+  const children: SpaceNode[] = [];
+
+  for (const name of top.folders) {
+    // ponytail: each folder gets a full 2M-entry walk; one shared cap starved /Library
+    scan.budget = MAX_ENTRIES;
+    const dataDir = path.join(listing, name);
+    const pubDir = path.join(mount, name);
+    // /System at the root is the sealed OS; disk.used lives on the Data volume's System folder
+    const dir = listing === data && name === 'System' ? dataDir : (await isRealDir(pubDir)) ? pubDir : dataDir;
+    const node = await measure(scan, dir, {
+      label: displayName(name),
+      icon: isMac && name === 'Applications' ? 'apps' : iconFor(name, true, dir),
+      exclude: isInside(dir, home) ? home : undefined,
+      skip: skipMacVolumes,
+    });
+    if (node) children.push(node);
+  }
+
+  const known = top.files.filter((f): f is { name: string; size: number } => f.size !== null);
+  children.push(...looseNodes(mount, known));
+  scan.step('Done');
+
+  const seen = sum(children, 'size');
+  if (claimed !== undefined && claimed > seen) {
+    children.push({ name: 'Not visible', path: mount, size: claimed - seen, kind: 'other', icon: 'lock', reclaimable: 0 });
+  }
+  children.sort((a, b) => b.size - a.size);
+  return {
+    name: 'System & apps',
+    path: mount,
+    size: claimed ?? seen,
+    kind: 'other',
+    icon: 'chip',
+    reclaimable: sum(children, 'reclaimable'),
+    children,
+  };
+}
+
+/** Direct children of one folder, so Space Map can keep opening until a folder is empty. */
+export async function scanSpaceFolder(progress: Progress, dir: unknown, claimedSize?: unknown): Promise<SpaceNode> {
+  if (typeof dir !== 'string' || dir.length === 0 || dir.length > 4096 || dir.includes('\0')) {
+    throw new Error('That folder is not available');
+  }
+  if (/^[\\/]{2}/.test(dir) || !path.isAbsolute(dir)) throw new Error('That folder is not available');
+  if (isWin && !/^[a-zA-Z]:[\\/]/.test(dir)) throw new Error('That folder is not available');
+  const abs = path.resolve(dir);
+  if (!(await isRealDir(abs))) throw new Error('That folder is not available');
+  const disk = diskFor(abs, await listDisks());
+  if (!disk) throw new Error('That folder is not available');
+
+  const home = os.homedir();
+  const isRoot = samePath(abs, disk.mount);
+  const claimed = typeof claimedSize === 'number' && Number.isFinite(claimedSize) && claimedSize > 0 ? claimedSize : undefined;
+  if (isRoot && disk.system) return scanSystemRoot(progress, abs, claimed, home);
+
+  const label = path.basename(abs) || disk.label;
+  // ponytail: each open walks that folder's subtree again to get sizes; the upgrade is to keep a measured node on disk
+  const scan = new Scan(progress);
+  scan.total = 1;
+  const measured = await measure(scan, abs, {
+    label,
+    icon: iconFor(label, true, abs),
+    exclude: isInside(abs, home) ? home : undefined,
+    skip: skipMacVolumes,
+  });
+  scan.step('Done');
+
+  return {
+    name: measured?.name ?? label,
+    path: abs,
+    size: claimed ?? measured?.size ?? 0,
+    kind: measured?.kind ?? 'folder',
+    icon: measured?.icon ?? 'folder',
+    reclaimable: measured?.reclaimable ?? 0,
+    children: [...(measured?.children ?? [])],
+  };
 }

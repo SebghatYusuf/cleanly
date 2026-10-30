@@ -31,7 +31,7 @@
   border: 0; background: none; padding: 0; cursor: pointer; color: var(--blue); font-size: 15px; font-weight: 550;
   display: inline-flex; align-items: center; gap: 6px; transition: color 0.2s, gap 0.25s var(--ease);
 }
-.home .link:hover { color: #1a2fb0; gap: 9px; }
+.home .link:hover { color: var(--link-hover); gap: 9px; }
 .home .link .ic { --fo: 0; }
 .home .hint { font-family: var(--mono); font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
 .home .hero-progress { width: 200px; max-width: 100%; }
@@ -39,7 +39,7 @@
 .home .cancel:hover { color: var(--ink); }
 
 /* space map */
-.home .map { width: clamp(340px, 38%, 460px); flex: none; position: relative; overflow: hidden; background: rgba(255, 255, 255, 0.62); }
+.home .map { width: clamp(340px, 38%, 460px); flex: none; position: relative; overflow: hidden; background: var(--glass-2); }
 .home .map-head { position: absolute; left: 24px; right: 22px; top: 20px; display: flex; justify-content: space-between; align-items: center; z-index: 2; }
 .home .map-head b { font-family: var(--display); font-size: 14px; font-weight: 500; letter-spacing: -0.01em; }
 .home .map-head .link { font-size: 13px; }
@@ -53,8 +53,8 @@
 .home .map-skel { position: relative; width: 100%; height: 100%; }
 .home .map-skel i {
   position: absolute; border-radius: 50%; transform: translate(-50%, -50%);
-  background: radial-gradient(circle at 30% 20%, #fff 0%, rgba(255, 255, 255, 0.85) 40%, rgba(236, 238, 250, 0.7) 100%);
-  border: 1px solid rgba(190, 196, 225, 0.55);
+  background: radial-gradient(circle at 30% 20%, var(--fill) 0%, var(--glass) 40%, var(--glass-2) 100%);
+  border: 1px solid var(--line);
   box-shadow: 0 14px 32px rgba(109, 123, 255, 0.1), inset 0 -6px 16px rgba(109, 123, 255, 0.06);
   animation: home-breathe 1.8s ease-in-out infinite;
 }
@@ -83,4 +83,9 @@
 
 @media (prefers-reduced-motion: reduce) {
   .home .eyebrow .dot.busy, .home .map-skel i, .home .lc-skel, .home .slider.loading .fill { animation: none; }
+}
+
+html[data-theme='dark'] .home .map-skel i {
+  background: radial-gradient(circle at 30% 20%, rgba(48, 52, 68, 0.9) 0%, rgba(28, 31, 42, 0.8) 40%, rgba(22, 24, 34, 0.7) 100%);
+  box-shadow: 0 14px 32px rgba(0, 0, 0, 0.3), inset 0 -6px 16px rgba(109, 123, 255, 0.1);
 }

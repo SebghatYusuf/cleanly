@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { canDrill } from '../../shared/spaceDrill';
 import type { DiskInfo, SpaceNode } from '../../shared/types';
 import { api } from '../api';
 import { Bubbles, type BubbleDatum } from '../components/Bubbles';
@@ -32,6 +33,9 @@ export default function SpaceMap() {
   const [picked, setPicked] = useState(lastSource);
   const [trail, setTrail] = useState<SpaceNode[]>([]);
   const [focus, setFocus] = useState<string | null>(null);
+  const [loaded, setLoaded] = useState<Record<string, SpaceNode[]>>({});
+  const [opening, setOpening] = useState(false);
+  const openGen = useRef(0);
 
   const sources = useMemo<Source[]>(
     () => [{ key: HOME_SRC, label: 'Home' }, ...(disks ?? []).map((d) => ({ key: d.mount, label: driveName(d), disk: d }))],
@@ -50,12 +54,23 @@ export default function SpaceMap() {
   const prog = busy && spacesBusy.length === 1 && progress?.task === 'spaces' ? progress : null;
 
   useEffect(() => {
+    openGen.current += 1;
     setTrail([]);
     setFocus(null);
+    setLoaded({});
+    setOpening(false);
   }, [tree]);
 
   const current = trail.length ? trail[trail.length - 1] : tree;
-  const kids = useMemo(() => [...(current?.children ?? [])].filter((c) => c.size > 0).sort(bySize), [current]);
+  const kids = useMemo(() => {
+    return [...(current?.children ?? [])]
+      .map((c) => {
+        const extra = loaded[nodeId(c)];
+        return extra !== undefined ? { ...c, children: extra } : c;
+      })
+      .filter((c) => c.size > 0)
+      .sort(bySize);
+  }, [current, loaded]);
 
   const fileIcons = useFileIcons(kids.slice(0, 80).map((c) => (c.kind === 'file' ? c.path : null)));
   // only rebuild the bubbles when an icon actually arrives, not on every render
@@ -77,13 +92,37 @@ export default function SpaceMap() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [kids, iconSig]);
 
+  const loadAndOpen = async (node: SpaceNode) => {
+    const token = ++openGen.current;
+    setOpening(true);
+    setFocus(nodeId(node));
+    try {
+      const result = await api.scanSpaceFolder(node.path, node.size);
+      if (token !== openGen.current) return;
+      const children = result.children ?? [];
+      setLoaded((m) => ({ ...m, [nodeId(node)]: children }));
+      setTrail((t) => [...t, { ...node, children }]);
+      setFocus(null);
+    } catch (e: unknown) {
+      if (token !== openGen.current) return;
+      toast(e instanceof Error ? e.message : 'Could not open that folder', 'err');
+    } finally {
+      if (token === openGen.current) setOpening(false);
+    }
+  };
+
   const open = (node: SpaceNode) => {
-    if (node.children?.length) {
+    if (opening) return;
+    if (node.children) {
       setTrail((t) => [...t, node]);
       setFocus(null);
-    } else {
-      setFocus(nodeId(node));
+      return;
     }
+    if (canDrill(node)) {
+      void loadAndOpen(node);
+      return;
+    }
+    setFocus(nodeId(node));
   };
 
   const onBubble = (id: string) => {
@@ -119,6 +158,7 @@ export default function SpaceMap() {
   }, [focus]);
 
   const loading = busy || (!root && scanning);
+  const folderProg = opening && progress?.task === 'spaces' ? progress : null;
   const total = splitBytes(current?.size ?? 0);
   const rootLabel = source.disk ? source.label : tree?.name || 'Home';
   const where = source.disk ? `drive ${source.label}` : 'your home folder';
@@ -213,10 +253,11 @@ export default function SpaceMap() {
               <i />
               <span>Badge: something here can be cleaned</span>
               <span className="grow" />
-              {busy && (
+              {(busy || opening) && (
                 <>
                   <span className="spinner" style={{ width: 14, height: 14 }} />
-                  <span>Updating</span>
+                  <span>{opening ? (folderProg?.phase ?? 'Looking inside') : 'Updating'}</span>
+                  {opening && folderProg?.current && <span className="cur">{shortPath(folderProg.current, home)}</span>}
                 </>
               )}
             </div>
@@ -248,7 +289,7 @@ export default function SpaceMap() {
             ) : (
               <div className="list fx-list">
                 {kids.slice(0, 80).map((c) => {
-                  const drill = !!c.children?.length;
+                  const drill = canDrill(c);
                   const share = current.size > 0 ? Math.max(1, Math.round((c.size / current.size) * 100)) : 0;
                   const img = fileIcons[c.path];
                   return (

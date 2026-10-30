@@ -73,7 +73,7 @@ function KeySetup({ provider }: { provider: AiProvider }) {
           aria-label={`${info.name} API key`}
         />
         <button type="button" className="btn primary" onClick={() => void save()} disabled={saving || !key.trim()}>
-          {saving ? <span className="spinner" style={{ borderColor: 'rgba(255,255,255,0.35)', borderTopColor: '#fff' }} /> : <Icon name="check" />}
+          {saving ? <span className="spinner" /> : <Icon name="check" />}
           Save key
         </button>
       </div>

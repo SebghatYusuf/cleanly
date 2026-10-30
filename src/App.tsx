@@ -1,8 +1,9 @@
-import type { ComponentType } from 'react';
+import { type ComponentType, useEffect } from 'react';
 import { Flow } from './components/Flow';
 import { Icon, IconSprite } from './components/Icon';
 import { Sidebar } from './components/Sidebar';
 import { Titlebar } from './components/Titlebar';
+import { applyTheme } from './lib/theme';
 import Apps from './screens/Apps';
 import Assistant from './screens/Assistant';
 import Cleanup from './screens/Cleanup';
@@ -35,7 +36,18 @@ const SCREENS: Record<Screen, ComponentType> = {
 function Shell() {
   const { screen, settings, toasts } = useStore();
   const bg = settings?.background ?? 'mist';
+  const themePref = settings?.theme;
   const Current = SCREENS[screen];
+
+  useEffect(() => {
+    if (!themePref) return;
+    applyTheme(themePref);
+    if (themePref !== 'system') return;
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => applyTheme('system');
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, [themePref]);
 
   return (
     <div className="app" data-bg={bg}>

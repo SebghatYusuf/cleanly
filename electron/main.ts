@@ -21,7 +21,7 @@ import { cleanJunk, scanJunk } from './services/junk';
 import { scanLargeFiles } from './services/largeFiles';
 import { getProtection } from './services/protection';
 import { getSettings, setApiKey, setSettings } from './services/settings';
-import { scanSpaces } from './services/spaces';
+import { scanSpaceFolder, scanSpaces } from './services/spaces';
 import { listStartup, setStartup } from './services/startup';
 import { createTipCheckout, getTipsProfile } from './services/tips';
 import { trashPaths } from './services/trash';
@@ -29,6 +29,18 @@ import { trashPaths } from './services/trash';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const devServer = process.env.VITE_DEV_SERVER_URL;
 let win: BrowserWindow | null = null;
+
+const PAPER = { light: '#f2f3f6', dark: '#12141c' } as const;
+const SYMBOL = { light: '#3c4250', dark: '#eef0f6' } as const;
+
+function paintWindow() {
+  if (!win) return;
+  const dark = nativeTheme.shouldUseDarkColors;
+  win.setBackgroundColor(dark ? PAPER.dark : PAPER.light);
+  if (process.platform === 'win32') {
+    win.setTitleBarOverlay({ color: '#00000000', symbolColor: dark ? SYMBOL.dark : SYMBOL.light, height: 44 });
+  }
+}
 
 const progress = (p: ScanProgress) => win?.webContents.send(PROGRESS_CHANNEL, p);
 
@@ -88,6 +100,7 @@ const handlers: Handlers = {
   scanJunk: () => scanJunk(progress),
   cleanJunk: (ids) => cleanJunk(ids, progress),
   scanSpaces: (root) => scanSpaces(progress, root),
+  scanSpaceFolder: (dir, claimedSize) => scanSpaceFolder(progress, dir, claimedSize),
   scanLargeFiles: (minBytes) => scanLargeFiles(minBytes, progress),
   scanDuplicates: () => scanDuplicates(progress),
   trashPaths: (paths) => trashPaths(paths),
@@ -100,7 +113,12 @@ const handlers: Handlers = {
   uninstallApp: (id) => uninstallApp(id),
   protection: () => getProtection(),
   getSettings: () => getSettings(),
-  setSettings: (patch) => setSettings(patch),
+  setSettings: async (patch) => {
+    const next = await setSettings(patch);
+    nativeTheme.themeSource = next.theme;
+    paintWindow();
+    return next;
+  },
   setApiKey: (provider, key) => setApiKey(provider, key),
   askAi: (question, context) => askAi(question, context),
   tipsProfile: () => getTipsProfile(),
@@ -129,18 +147,19 @@ function registerIpc() {
 
 function createWindow() {
   const isMac = process.platform === 'darwin';
+  const dark = nativeTheme.shouldUseDarkColors;
   win = new BrowserWindow({
     width: 1320,
     height: 840,
     minWidth: 1120,
     minHeight: 740,
     show: false,
-    backgroundColor: '#f2f3f6',
+    backgroundColor: dark ? PAPER.dark : PAPER.light,
     title: 'Cleanly',
     titleBarStyle: 'hidden',
     ...(isMac
       ? { trafficLightPosition: { x: 20, y: 16 } }
-      : { titleBarOverlay: { color: '#00000000', symbolColor: '#3c4250', height: 44 } }),
+      : { titleBarOverlay: { color: '#00000000', symbolColor: dark ? SYMBOL.dark : SYMBOL.light, height: 44 } }),
     webPreferences: {
       preload: path.join(here, 'preload.cjs'),
       contextIsolation: true,
@@ -178,8 +197,10 @@ if (!app.requestSingleInstanceLock()) {
     win.focus();
   });
 
-  app.whenReady().then(() => {
-    nativeTheme.themeSource = 'light';
+  app.whenReady().then(async () => {
+    const settings = await getSettings();
+    nativeTheme.themeSource = settings.theme;
+    nativeTheme.on('updated', paintWindow);
     registerIpc();
     createWindow();
     app.on('activate', () => {

@@ -116,12 +116,14 @@ export interface ProtectionStatus {
 
 export type AiProvider = 'claude' | 'chatgpt';
 export type Background = 'mist' | 'grid' | 'dots' | 'grain';
+export type ThemePref = 'light' | 'dark' | 'system';
 
 export interface Settings {
   aiProvider: AiProvider;
   hasClaudeKey: boolean;
   hasOpenAiKey: boolean;
   background: Background;
+  theme: ThemePref;
   largeFileMinMb: number;
   confirmBeforeClean: boolean;
 }
@@ -183,6 +185,8 @@ export interface CleanlyApi {
   cleanJunk(ids: string[]): Promise<CleanResult>;
   /** root = undefined for the home folder, or the mount of a drive from disks() */
   scanSpaces(root?: string): Promise<SpaceNode>;
+  /** one folder's direct children, for drilling past the initial two-level map */
+  scanSpaceFolder(path: string, claimedSize?: number): Promise<SpaceNode>;
   /** scans the home folder plus every other fixed drive */
   scanLargeFiles(minBytes: number): Promise<LargeFile[]>;
   scanDuplicates(): Promise<DuplicateGroup[]>;
@@ -206,7 +210,7 @@ export interface CleanlyApi {
 
 /** Names of the request/response methods, used to wire IPC in preload and main. */
 export const API_METHODS = [
-  'system', 'disk', 'disks', 'fileIcons', 'scanJunk', 'cleanJunk', 'scanSpaces', 'scanLargeFiles', 'scanDuplicates', 'trashPaths',
+  'system', 'disk', 'disks', 'fileIcons', 'scanJunk', 'cleanJunk', 'scanSpaces', 'scanSpaceFolder', 'scanLargeFiles', 'scanDuplicates', 'trashPaths',
   'revealPath', 'startupItems', 'setStartupItem', 'installedApps', 'uninstallApp', 'protection', 'getSettings',
   'setSettings', 'setApiKey', 'askAi', 'tipsProfile', 'startTip', 'sendFeedback', 'openExternal',
 ] as const satisfies readonly Exclude<keyof CleanlyApi, 'onProgress'>[];
